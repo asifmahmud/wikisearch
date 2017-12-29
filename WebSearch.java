@@ -40,6 +40,14 @@ import org.w3c.dom.NodeList;
 
 public class WebSearch{
 
+	/*
+	*****************************************************
+	* The CompositeWritable class is used by the mapper 
+	* and reducer to emit the url and relevance score 
+	* together as a single data type. 
+	*****************************************************
+	*/
+
 	public static class CompositeWritable implements Writable {
 	    public String url = "";
 	    public int relevance = 0;
@@ -69,11 +77,28 @@ public class WebSearch{
 	    }
 	}
 
+	/*
+	************************************************************
+	* ------------------------The Mapper------------------------
+	* The mapper takes as input the Wikipedia abstract XML dump
+	* and performs the following tasks:
+	*
+	* 1. Connects to the local Cassandra client.
+	* 2. Parses the XML file and extracts the title, url,
+	* 	 abstract and links for each article.
+	* 3. For each article, publishes the url, title, abstract, 
+	* 	 length of the abstract and the nunber of links to a 
+	* 	 Cassandra table.
+	* 4. For each word in the abstract section, emit an inverted
+	* 	 index to the reducer: {word[key], (url, relevance score)[value]}
+	************************************************************
+	*/
+
 
 	public static class WebSearchMapper extends Mapper<Object, Text, Text, CompositeWritable>{
 
-		private static List<String> STOPWORDS = 
-							new ArrayList<String>(Arrays.asList("Wikipedia", "the", "and", "for"));
+		/* List of words to ignore */
+		private static List<String> STOPWORDS = new ArrayList<String>(Arrays.asList("Wikipedia", "the", "and", "for"));
 
 		public static class CassandraClient{
 			Session session = null;
@@ -106,6 +131,7 @@ public class WebSearch{
 			}
 		}
 
+		/* Local Cassandra client used by the Mapper */
 		static CassandraClient cassandra_client = new CassandraClient();
 
 		public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
@@ -139,6 +165,8 @@ public class WebSearch{
 	                    refs = eElement.getElementsByTagName("links").item(0).getChildNodes().getLength();		
 	 					length = text_abstract.length();
 	                }
+	                
+	                /* Relevance score = (length of the abstract section) x (number of sections in the article) */
 	               	relevance = length * refs;
  					cassandra_client.insertPage(url, title, text_abstract, length, refs);
 
@@ -146,7 +174,9 @@ public class WebSearch{
  					List<String> words = new ArrayList<String>();
 
  					for (String w : txt){
+ 						/* Ignore all alphanumeric words and numbers */
  						w = w.trim().replaceAll("[^a-zA-Z]","");
+ 						/* Only store words that are greater than 2 characters */
  						if (!STOPWORDS.contains(w) && w.length() > 2){
  							words.add(w);
  						}
@@ -164,6 +194,22 @@ public class WebSearch{
 			cassandra_client.close();
 		}
 	}
+
+	/*
+	************************************************************
+	* -----------------------The Reducer-----------------------
+	* The reducer takes as input the inverted index produced by 
+	* the mapper and performs the following tasks:
+	*
+	* 1. Connects to the local Cassandra client.
+	* 2. For each of the (url, relevance) tuple in the list of 
+	* 	 values, put them into a sorted map (TreeMap), which
+	* 	 sorts them by relevance.
+	* 3. For each entry in the sorted map, publish the 
+	* 	 (word, url, relevance) triplet to a Cassandra table.
+	* 4. At the same time, emit them as output.
+	************************************************************
+	*/
 
 	public static class WebSearchReducer extends Reducer<Text,CompositeWritable,Text, CompositeWritable> {
 
@@ -198,11 +244,13 @@ public class WebSearch{
 			}
 		}
 
+		/* Local Cassandra client used by the Reducer */
 		static CassandraClient cassandra_client2 = new CassandraClient();
 
 		public void reduce(Text key, Iterable<CompositeWritable> values, Context context) throws IOException, InterruptedException {
 			cassandra_client2.connect();
 
+			/* Use TreeMap to sort the entries by relevance score */
 			Map<Integer, String> map = new TreeMap<Integer,String>();
 
 			for (CompositeWritable c : values){

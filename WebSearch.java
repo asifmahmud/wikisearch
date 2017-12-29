@@ -165,7 +165,7 @@ public class WebSearch{
 	                    refs = eElement.getElementsByTagName("links").item(0).getChildNodes().getLength();		
 	 					length = text_abstract.length();
 	                }
-	                
+
 	                /* Relevance score = (length of the abstract section) x (number of sections in the article) */
 	               	relevance = length * refs;
  					cassandra_client.insertPage(url, title, text_abstract, length, refs);
@@ -201,7 +201,7 @@ public class WebSearch{
 	* The reducer takes as input the inverted index produced by 
 	* the mapper and performs the following tasks:
 	*
-	* 1. Connects to the local Cassandra client.
+	* 1. Connects to the local Cassandra Client.
 	* 2. For each of the (url, relevance) tuple in the list of 
 	* 	 values, put them into a sorted map (TreeMap), which
 	* 	 sorts them by relevance.
